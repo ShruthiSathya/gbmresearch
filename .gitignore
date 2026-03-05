@@ -1,0 +1,13 @@
+# Ignore raw data files
+data/raw_omics/
+data/validation/
+*.csv
+*.tsv
+*.gz
+
+# Ignore python cache
+__pycache__/
+*.pycdata/raw_omics/
+data/validation/
+__pycache__/
+.DS_Store
