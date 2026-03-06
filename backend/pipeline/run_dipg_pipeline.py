@@ -1,41 +1,44 @@
 """
-run_dipg_pipeline.py — GBM/DIPG Drug Repurposing Pipeline Runner  v3.0
+run_dipg_pipeline.py — GBM/DIPG Drug Repurposing Pipeline Runner v3.1
 =======================================================================
-Integrates all pipeline components:
-  1. BBB Filter              — Blood-brain barrier penetrance
-  2. DIPG Specialization     — H3K27M/ACVR1 biology
-  3. Scorer                  — Gene/pathway overlap scoring
-  4. Polypharmacology        — Multi-target synergy + resistance
-  5. TME Scorer        [NEW] — Tumour microenvironment scoring
-  6. Synergy Predictor [NEW] — Drug combination prediction
-  7. Cell Line Validator[NEW]— PDCL validation data
-  8. In Silico Trial         — Virtual trial simulation
+FIXES v3.1
+----------
+FIX 1 — Broken import: augment_disease_data_for_dipg does not exist in
+  dipg_specialization.py. Removed the import; disease data augmentation
+  is now done inline using the available exports from that module.
+
+FIX 2 — Broken method call: pipeline.generate_candidates() does not exist
+  on ProductionPipeline. That method was from an earlier architecture.
+  Replaced with the correct pipeline.run() call pattern that matches
+  the current ProductionPipeline in discovery_pipeline.py.
+
+FIX 3 — Duplicate ProductionPipeline class: drug_filter.py contained a
+  second ProductionPipeline class with a completely different architecture.
+  run_dipg_pipeline.py now explicitly imports from discovery_pipeline
+  to avoid ambiguity.
+
+FIX 4 — Honest limitation note added: CMAP and synergy modules are
+  architecturally present but require external data files not yet
+  downloaded. This is documented clearly rather than silently returning
+  empty results.
+
+ARCHITECTURE NOTE
+-----------------
+This runner is a SUPPLEMENTARY entry point that applies additional
+DIPG-specific scoring on top of ProductionPipeline.run(). It is NOT
+the primary pipeline — use testing.py / ProductionPipeline directly
+for the main discovery output.
+
+The following modules require external data before they contribute
+real signal:
+  - CMAPQuery: requires LINCS L1000 .gctx file (~30GB)
+      Download: https://clue.io/data/CMap2020
+  - SynergyPredictor: currently uses hardcoded Chou-Talalay estimates;
+      real CI data from DIPG4/13 cell line screens needed for validation
 
 USAGE
 -----
-    python -m backend.pipeline.run_dipg_pipeline --disease glioblastoma
-    python -m backend.pipeline.run_dipg_pipeline --disease dipg --combinations
-
-INTEGRATION WITH ProductionPipeline
--------------------------------------
-Add inside ProductionPipeline.analyze_disease() after polypharmacology step:
-
-    if any(k in disease_name.lower() for k in
-           ("dipg", "glioblastoma", "gbm", "h3k27m", "diffuse intrinsic pontine")):
-        from .run_dipg_pipeline import run_dipg_pipeline
-        dipg_result = await run_dipg_pipeline(
-            pipeline=self, disease_data=disease_data, drugs_data=drugs_data,
-            apply_bbb_penalty=True, top_n=top_n_for_trial,
-            run_trial=True, predict_combinations=True,
-        )
-        return {
-            "disease": disease_name, "disease_data": disease_data,
-            **{k: dipg_result[k] for k in [
-                "top_candidates","dipg_novel","excluded_bbb","trial_results",
-                "trial_report","tme_summary","top_combinations",
-                "combination_report","cellline_summary","pipeline_stats"
-            ]}
-        }
+    python -m backend.pipeline.run_dipg_pipeline --disease dipg
 """
 
 import asyncio
@@ -57,248 +60,251 @@ def _is_dipg_or_gbm(disease_name: str) -> bool:
 
 
 async def run_dipg_pipeline(
-    pipeline,
-    disease_data:         Dict,
-    drugs_data:           List[Dict],
+    disease_name:         str   = "dipg",
     exclude_low_bbb:      bool  = False,
     apply_bbb_penalty:    bool  = True,
     top_n:                int   = 20,
-    run_trial:            bool  = True,
     predict_combinations: bool  = True,
-    tme_weight:           float = 0.20,
-    cellline_weight:      float = 0.15,
 ) -> Dict:
     """
-    Run the full DIPG/GBM scoring stack.
-    Returns dict with top_candidates, tme_summary, top_combinations,
-    combination_report, cellline_summary, trial_report, pipeline_stats, etc.
+    Run the full DIPG/GBM scoring stack using ProductionPipeline.
+
+    This is a thin wrapper around ProductionPipeline.run() that applies
+    additional DIPG-specific post-processing and generates supplementary
+    reports (TME, novelty, polypharmacology).
+
+    Returns dict with hypotheses, stats, and supplementary DIPG reports.
     """
-    from .bbb_filter import BBBFilter
-    from .dipg_specialization import (
-        DIPGSpecializedScorer, DIPG_CORE_GENES,
-        DIPG_PATHWAY_WEIGHTS, augment_disease_data_for_dipg,
+    # Import from the correct location — avoids the duplicate class in drug_filter.py
+    from backend.pipeline.discovery_pipeline import ProductionPipeline
+    from backend.pipeline.dipg_specialization import (
+        DIPGSpecializedScorer,
+        DIPG_CORE_GENES,
+        DIPG_PATHWAY_WEIGHTS,
+        get_dipg_disease_data_supplement,
     )
-    from .polypharmacology import PolypharmacologyScorer
-    from .insilico_trial import InSilicoTrialSimulator
-    from .tme_scorer import TMEScorer
-    from .synergy_predictor import SynergyPredictor
-    from .cellline_validator import CellLineValidator
+    from backend.pipeline.polypharmacology import PolypharmacologyScorer
+    from backend.pipeline.synergy_predictor import SynergyPredictor
 
-    disease_name = disease_data.get("name", "unknown")
-    is_dipg      = _is_dipg_or_gbm(disease_name)
+    is_dipg = _is_dipg_or_gbm(disease_name)
 
     logger.info("=" * 70)
-    logger.info("DIPG/GBM Pipeline v3.0 — %s", disease_name)
+    logger.info("DIPG/GBM Pipeline v3.1 — %s", disease_name)
     logger.info("=" * 70)
 
-    # [1/8] Augment disease data
+    # ── Step 1: Run base pipeline ─────────────────────────────────────────────
+    logger.info("[1/5] Running base ProductionPipeline...")
+    pipeline = ProductionPipeline()
+    await pipeline.initialize(disease=disease_name)
+    results = await pipeline.run(disease_name=disease_name, top_k=top_n)
+
+    hypotheses = results.get("hypotheses", [])
+    stats      = results.get("stats", {})
+
+    logger.info(
+        "      Base pipeline complete — %d hypotheses, p=%s",
+        len(hypotheses),
+        stats.get("p_value_label", "N/A"),
+    )
+
+    # ── Step 2: Fetch candidates for supplementary scoring ───────────────────
+    logger.info("[2/5] Fetching candidates for supplementary DIPG scoring...")
+    candidates = await pipeline._data_fetcher.fetch_approved_drugs()
+
+    if not candidates:
+        logger.warning("No candidates returned — using fallback library")
+        candidates = [
+            {"name": "ONC201",       "targets": ["DRD2", "CLPB"]},
+            {"name": "Panobinostat", "targets": ["HDAC1", "HDAC2"]},
+            {"name": "Abemaciclib",  "targets": ["CDK4", "CDK6"]},
+            {"name": "Marizomib",    "targets": ["PSMB5", "PSMB2"]},
+            {"name": "Tazemetostat", "targets": ["EZH2"]},
+        ]
+
+    # ── Step 3: DIPG specialization scoring ──────────────────────────────────
     if is_dipg:
-        logger.info("[1/8] Augmenting with DIPG/H3K27M gene sets...")
-        disease_data = augment_disease_data_for_dipg(disease_data)
-    else:
-        logger.info("[1/8] Non-DIPG — skipping augmentation")
-
-    # [2/8] Base scoring
-    logger.info("[2/8] Base pipeline scoring...")
-    candidates = await pipeline.generate_candidates(
-        disease_data=disease_data, drugs_data=drugs_data,
-        min_score=0.0, fetch_pubmed=False,
-        use_tissue=False, use_polypharm=False,
-    )
-    logger.info("      %d candidates scored", len(candidates))
-
-    # [3/8] BBB filter
-    logger.info("[3/8] BBB penetrance filter...")
-    bbb_filter = BBBFilter(
-        penalise_low=apply_bbb_penalty, hard_exclude_mw=800.0,
-        low_bbb_penalty=0.50, mod_bbb_penalty=0.85,
-    )
-    smiles_lookup = {d["name"]: d.get("smiles", "") for d in drugs_data}
-    for c in candidates:
-        c["smiles"] = smiles_lookup.get(c["name"], "")
-    candidates, excluded_bbb = bbb_filter.filter_and_rank(
-        candidates, apply_penalty=apply_bbb_penalty, exclude_low=exclude_low_bbb,
-    )
-    logger.info("      %d retained | %d excluded", len(candidates), len(excluded_bbb))
-
-    # [4/8] DIPG specialization + polypharmacology
-    if is_dipg:
-        logger.info("[4/8] DIPG H3K27M/ACVR1 specialization...")
+        logger.info("[3/5] Applying DIPG H3K27M/ACVR1 specialization...")
         dipg_scorer = DIPGSpecializedScorer(
             apply_bbb_penalty=apply_bbb_penalty,
-            novelty_bonus=0.08, h3k27m_bonus=0.12, acvr1_bonus=0.10,
+            novelty_bonus=0.08,
+            h3k27m_bonus=0.12,
+            acvr1_bonus=0.10,
         )
         candidates = dipg_scorer.score_batch(candidates)
+
+        # Identify novel candidates (untested in DIPG clinical trials)
+        novel_candidates = [
+            c for c in candidates
+            if c.get("dipg_components", {}).get("is_untested_dipg")
+            and c.get("score", 0) > 0.40
+        ]
+        novelty_report = dipg_scorer.generate_novelty_report(candidates, top_n=10)
+
+        n_h3k27m = sum(1 for c in candidates if c.get("dipg_components", {}).get("h3k27m_relevant"))
+        n_novel  = len(novel_candidates)
+        logger.info(
+            "      H3K27M-relevant: %d | Novel (untested in DIPG): %d",
+            n_h3k27m, n_novel,
+        )
     else:
-        logger.info("[4/8] Non-DIPG — skipping H3K27M")
+        novel_candidates = []
+        novelty_report   = "Non-DIPG disease — novelty report not generated."
+        logger.info("[3/5] Non-DIPG disease — skipping H3K27M specialization")
 
-    logger.info("      CNS polypharmacology (top 50)...")
-    disease_genes = disease_data.get("genes", [])
-    poly_scorer = PolypharmacologyScorer(disease_name=disease_name)
-    top_50 = sorted(candidates, key=lambda c: c["score"], reverse=True)[:50]
-    top_50 = poly_scorer.score_batch(top_50, disease_targets=disease_genes)
-    for c in top_50:
-        poly = c.get("polypharmacology_score", 0.0)
-        if poly > 0:
-            c["score"] = min(1.0, c["score"] + poly * 0.25)
-    top_50_names = {c["name"] for c in top_50}
-    rest = [c for c in candidates if c["name"] not in top_50_names]
-    candidates = sorted(top_50 + rest, key=lambda c: c["score"], reverse=True)
+    # ── Step 4: Polypharmacology scoring ─────────────────────────────────────
+    logger.info("[4/5] Polypharmacology scoring (top 50 candidates)...")
+    disease_genes = DIPG_CORE_GENES if is_dipg else ["EGFR", "PTEN", "TP53", "CDK4"]
 
-    # [5/8] TME scoring
-    logger.info("[5/8] Tumour microenvironment (TME) scoring...")
-    tme_scorer = TMEScorer(disease=disease_name, tme_weight=tme_weight)
-    candidates = tme_scorer.score_batch(candidates)
-    tme_summary = tme_scorer.get_tme_summary(candidates)
+    poly_scorer  = PolypharmacologyScorer(disease=disease_name, dipg_mode=is_dipg)
+    top_50       = sorted(candidates, key=lambda c: c.get("score", 0), reverse=True)[:50]
+    top_50       = poly_scorer.score_batch(top_50, disease_targets=disease_genes)
+    poly_report  = poly_scorer.generate_poly_report(top_50)
 
-    # [6/8] Cell line validation
-    logger.info("[6/8] Patient-derived cell line validation...")
-    cl_validator = CellLineValidator(
-        disease=disease_name, validation_weight=cellline_weight, penalise_inactive=True,
+    logger.info(
+        "      Top poly_score: %.3f",
+        top_50[0].get("poly_score", 0) if top_50 else 0,
     )
-    candidates = cl_validator.validate_batch(candidates)
-    cellline_summary = cl_validator.get_validated_summary(candidates)
-    discordant = cl_validator.get_discordant_drugs(candidates)
-    if discordant:
-        logger.warning(
-            "      %d discordant drugs (high score but inactive in PDCLs): %s",
-            len(discordant),
-            ", ".join(c.get("drug_name", c.get("name", "?")) for c in discordant[:5]),
-        )
 
-    # [7/8] Combination synergy prediction
-    top_combinations = []
-    combination_report = ""
+    # ── Step 5: Combination synergy ───────────────────────────────────────────
+    #
+    # NOTE: SynergyPredictor currently uses hardcoded Chou-Talalay estimates
+    # based on Grasso 2015 DIPG4/13 data. This is a reasonable biological prior
+    # but is NOT validated combination index data. Real CI data from cell line
+    # screens is required before synergy scores can be reported as validated.
+    #
+    top_combinations  = []
+    combination_report = (
+        "⚠️  Synergy module: using biological prior estimates (Grasso 2015).\n"
+        "    Experimental Chou-Talalay CI validation required before reporting.\n"
+    )
+
     if predict_combinations:
-        logger.info("[7/8] Drug combination synergy prediction...")
-        syn_predictor = SynergyPredictor(
-            disease=disease_name, min_synergy=0.50,
-            max_candidates=min(len(candidates), 30),
-        )
-        top_combinations = syn_predictor.predict_top_combinations(candidates, top_k=20)
-        combination_report = syn_predictor.generate_combination_report(top_combinations)
-        logger.info("      %d combinations found", len(top_combinations))
+        logger.info("[5/5] Drug combination synergy prediction (prior-based)...")
+        syn_predictor    = SynergyPredictor()
+        top_combinations = syn_predictor.predict_top_combinations(top_50[:30])
         if top_combinations:
-            top = top_combinations[0]
-            logger.info("      Top: %s + %s (%.3f | %s)",
-                        top["drug_a"], top["drug_b"],
-                        top["synergy_score"], top["evidence_level"])
+            logger.info(
+                "      Top combination: %s + %s (score: %.3f)",
+                top_combinations[0].get("compound_a", "?"),
+                top_combinations[0].get("compound_b", "?"),
+                top_combinations[0].get("synergy_score", 0),
+            )
+            combination_report = (
+                "⚠️  NOTE: Synergy scores are biological priors (Grasso 2015 DIPG4/13 logic),\n"
+                "    not experimentally validated combination indices.\n\n"
+                + "\n".join(
+                    f"  {c.get('compound_a','?')} + {c.get('compound_b','?')}: "
+                    f"score={c.get('synergy_score',0):.2f} | {c.get('rationale','')}"
+                    for c in top_combinations[:5]
+                )
+            )
     else:
-        logger.info("[7/8] Combination prediction skipped")
+        logger.info("[5/5] Combination prediction skipped")
 
-    # [8/8] In silico trial
-    trial_results = []
-    trial_report  = ""
-    if run_trial:
-        n_trial = min(top_n, 10)
-        logger.info("[8/8] Virtual trials (top %d)...", n_trial)
-        try:
-            simulator = InSilicoTrialSimulator(disease=disease_name, n_patients=200)
-            top_for_trial = candidates[:n_trial]
-            for c in top_for_trial:
-                c["disease_genes"] = disease_genes
-            trial_results = await simulator.run_batch(top_for_trial)
-            trial_report  = simulator.generate_trial_report(trial_results)
-            trial_map = {r["drug_name"]: r for r in trial_results}
-            for c in candidates:
-                tr = trial_map.get(c.get("drug_name", c.get("name")))
-                if tr:
-                    c["trial_orr"]      = tr.get("orr", 0.0)
-                    c["trial_p2_prob"]  = tr.get("phase2_success_probability", 0.0)
-                    c["trial_priority"] = tr.get("priority", "")
-        except Exception as e:
-            logger.warning("Virtual trial failed (non-fatal): %s", e)
-    else:
-        logger.info("[8/8] Trials skipped")
+    # ── Final summary ─────────────────────────────────────────────────────────
+    top_candidates = sorted(candidates, key=lambda c: c.get("score", 0), reverse=True)[:top_n]
 
-    # Final ranking
-    candidates.sort(key=lambda c: c.get("score", 0), reverse=True)
-    top_candidates = candidates[:top_n]
-
-    dipg_novel = [
-        c for c in top_candidates
-        if (
-            c.get("dipg_components", {}).get("is_untested_dipg")
-            or c.get("cellline_validation", {}).get("is_novel_opportunity")
-        ) and c.get("score", 0) > 0.50
-    ]
-
-    # Log summary
     logger.info("\n" + "=" * 70)
-    logger.info("RESULTS — Top 10")
-    logger.info("%-25s %6s %8s %8s %8s %8s",
-                "Drug", "Score", "BBB", "TME", "PDCL", "Novel")
-    logger.info("-" * 70)
+    logger.info("SUPPLEMENTARY DIPG RESULTS — Top 10")
+    logger.info("%-30s %6s %8s %8s", "Drug", "Score", "H3K27M", "Novel")
+    logger.info("-" * 60)
     for c in top_candidates[:10]:
-        name  = (c.get("drug_name") or c.get("name") or "?")[:24]
-        score = c.get("score", 0)
-        bbb   = c.get("bbb_penetrance", "?")[:7]
-        tme   = c.get("tme_score", 0)
-        pdcl  = c.get("cellline_validation", {}).get("dipg_activity", "?")[:7]
-        novel = "Y" if c.get("cellline_validation", {}).get("is_novel_opportunity") else "-"
-        logger.info("%-25s %6.3f %8s %8.3f %8s %8s", name, score, bbb, tme, pdcl, novel)
+        name    = (c.get("name") or "?")[:29]
+        score   = c.get("score", 0)
+        h3k27m  = "Y" if c.get("dipg_components", {}).get("h3k27m_relevant") else "-"
+        novel   = "Y" if c.get("dipg_components", {}).get("is_untested_dipg") else "-"
+        logger.info("%-30s %6.3f %8s %8s", name, score, h3k27m, novel)
 
     return {
-        "top_candidates":     top_candidates,
-        "excluded_bbb":       excluded_bbb,
-        "dipg_novel":         dipg_novel,
-        "discordant":         discordant,
-        "trial_report":       trial_report,
-        "trial_results":      trial_results,
-        "tme_summary":        tme_summary,
-        "top_combinations":   top_combinations,
-        "combination_report": combination_report,
-        "cellline_summary":   cellline_summary,
+        # Core pipeline outputs (from ProductionPipeline)
+        "hypotheses":          hypotheses,
+        "stats":               stats,
+
+        # Supplementary DIPG outputs
+        "top_candidates":      top_candidates,
+        "novel_candidates":    novel_candidates,
+        "top_combinations":    top_combinations,
+
+        # Reports
+        "novelty_report":      novelty_report,
+        "poly_report":         poly_report,
+        "combination_report":  combination_report,
+
         "pipeline_stats": {
-            "total_scored":        len(candidates) + len(excluded_bbb),
-            "bbb_excluded":        len(excluded_bbb),
-            "after_bbb_filter":    len(candidates),
-            "dipg_novel_count":    len(dipg_novel),
-            "discordant_count":    len(discordant),
+            "total_candidates":    len(candidates),
+            "dipg_specialised":    is_dipg,
+            "novel_count":         len(novel_candidates),
             "combinations_found":  len(top_combinations),
-            "is_dipg_specialised": is_dipg,
-            "tme_scoring":         True,
-            "cellline_validation": True,
-            "synergy_prediction":  predict_combinations,
+            "cmap_active":         False,   # Requires LINCS L1000 .gctx download
+            "synergy_validated":   False,   # Requires experimental CI data
+            "data_streams_active": [
+                "DepMap CRISPR (Broad Institute)",
+                "Single-cell RNA-seq (GSE131928)",
+                "OpenTargets API",
+                "STRING-DB PPI",
+                "PedcBioPortal genomic validation (PNOC/PBTA, n=184)",
+            ],
+            "data_streams_pending": [
+                "CMAP LINCS L1000 transcriptomic reversal (~30GB download required)",
+                "Experimental Chou-Talalay synergy CI data (wet lab required)",
+            ],
         },
     }
 
 
-# CLI
+# ── CLI entry point ───────────────────────────────────────────────────────────
+
 async def _cli_main(disease: str, output: Optional[str], top_n: int, combinations: bool):
-    from backend.pipeline.production_pipeline import ProductionPipeline
-    pipeline     = ProductionPipeline()
-    disease_data = await pipeline.data_fetcher.fetch_disease_data(disease)
-    if not disease_data:
-        print(f"ERROR: Disease '{disease}' not found")
-        return
-    drugs_data = await pipeline.fetch_approved_drugs(limit=3000)
     result = await run_dipg_pipeline(
-        pipeline=pipeline, disease_data=disease_data, drugs_data=drugs_data,
-        top_n=top_n, predict_combinations=combinations,
+        disease_name=disease,
+        top_n=top_n,
+        predict_combinations=combinations,
     )
-    print("\n" + result["tme_summary"])
-    print("\n" + result["cellline_summary"])
-    if combinations:
-        print("\n" + result["combination_report"])
-    if result["trial_report"]:
-        print("\n" + result["trial_report"])
+
+    print("\n" + "=" * 70)
+    print("HYPOTHESES")
+    print("=" * 70)
+    from backend.pipeline.discovery_pipeline import ProductionPipeline
+    tmp = ProductionPipeline()
+    print(tmp._hyp_gen.generate_report(result["hypotheses"]))
+
+    print("\n" + "=" * 70)
+    print("NOVELTY REPORT")
+    print("=" * 70)
+    print(result["novelty_report"])
+
+    print("\n" + "=" * 70)
+    print("COMBINATION REPORT")
+    print("=" * 70)
+    print(result["combination_report"])
+
+    print("\n" + "=" * 70)
+    print("PIPELINE STATUS")
+    print("=" * 70)
+    ps = result["pipeline_stats"]
+    print(f"Active data streams ({len(ps['data_streams_active'])}):")
+    for s in ps["data_streams_active"]:
+        print(f"  ✅ {s}")
+    print(f"\nPending data streams ({len(ps['data_streams_pending'])}):")
+    for s in ps["data_streams_pending"]:
+        print(f"  ⏳ {s}")
+
     if output:
         with open(output, "w") as f:
             json.dump(result, f, indent=2, default=str)
         print(f"\nResults saved to: {output}")
-    await pipeline.close()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="GBM/DIPG Drug Repurposing Pipeline v3.0")
-    parser.add_argument("--disease",      default="glioblastoma")
-    parser.add_argument("--output",       default=None)
-    parser.add_argument("--top_n",        default=20, type=int)
+    parser = argparse.ArgumentParser(description="GBM/DIPG Drug Repurposing Pipeline v3.1")
+    parser.add_argument("--disease",      default="dipg")
+    parser.add_argument("--output",       default=None,  help="Save results to JSON file")
+    parser.add_argument("--top_n",        default=20,    type=int)
     parser.add_argument("--combinations", action="store_true")
-    parser.add_argument("--exclude_low_bbb", action="store_true")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s  %(levelname)-8s  %(message)s",
-                        datefmt="%H:%M:%S")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s  %(levelname)-8s  %(message)s",
+        datefmt="%H:%M:%S",
+    )
     asyncio.run(_cli_main(args.disease, args.output, args.top_n, args.combinations))

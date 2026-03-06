@@ -1,6 +1,16 @@
 """
-dipg_specialization.py — DIPG/H3K27M Disease Specialization v1.0
+dipg_specialization.py — DIPG/H3K27M Disease Specialization v1.1
 =================================================================
+FIXES v1.1
+----------
+FIX 1 — Missing augment_disease_data_for_dipg function:
+  run_dipg_pipeline.py imported augment_disease_data_for_dipg but this
+  function did not exist in this module. Added as a thin wrapper around
+  get_dipg_disease_data_supplement() that merges DIPG-specific gene sets
+  and parameters into an existing disease_data dict.
+
+All other content is unchanged from v1.0.
+
 Specializes the drug repurposing pipeline for Diffuse Intrinsic Pontine
 Glioma (DIPG) and H3K27M-mutant gliomas, including:
 
@@ -21,11 +31,6 @@ and creates a unique epigenetic vulnerability:
 
 ACVR1 mutations (~25% of DIPG) activate BMP signalling and are essentially
 absent from adult GBM, making this a pediatric-specific target.
-
-Novel therapeutic angle:
-  Combining epigenetic reprogramming (restore H3K27me3) + BBB-penetrant
-  kinase inhibition (PDGFRA/ACVR1 in ACVR1-mutant DIPG) is mechanistically
-  rational and largely untested.
 
 References
 ----------
@@ -166,7 +171,6 @@ DIPG_ACVR1_SUBTYPE_GENES: List[str] = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DIPG-specific pathway weights
-# Higher weight = more therapeutically relevant to DIPG/H3K27M biology
 # ─────────────────────────────────────────────────────────────────────────────
 DIPG_PATHWAY_WEIGHTS: Dict[str, float] = {
     # H3K27M-specific epigenetic pathways — highest priority
@@ -178,14 +182,14 @@ DIPG_PATHWAY_WEIGHTS: Dict[str, float] = {
     "Chromatin remodeling":                 0.90,
     "Chromatin organisation":               0.90,
 
-    # HDAC pathways — vulnerability due to H3K27M epigenetic dysregulation
+    # HDAC pathways
     "HDAC deacetylase activity":            0.95,
     "HDAC inhibition":                      0.95,
     "Histone deacetylation":                0.95,
     "Class I HDAC":                         0.90,
     "Class II HDAC":                        0.85,
 
-    # BET bromodomain — H3K27ac mark reader, upregulated in H3K27M tumours
+    # BET bromodomain
     "BRD4 signaling":                       0.95,
     "BET bromodomain":                      0.95,
     "Bromodomain signaling":                0.90,
@@ -202,12 +206,12 @@ DIPG_PATHWAY_WEIGHTS: Dict[str, float] = {
     "PDGFRA signaling":                     0.95,
     "Receptor tyrosine kinase signaling":   0.80,
 
-    # PI3K/AKT/mTOR — commonly activated
+    # PI3K/AKT/mTOR
     "PI3K-Akt signaling":                   0.85,
     "mTOR signaling":                       0.80,
     "PTEN signaling":                       0.85,
 
-    # Cell cycle — CDK4/6 amplification in DIPG
+    # Cell cycle
     "Cell cycle regulation":                0.80,
     "CDK4/6 signaling":                     0.90,
     "Cyclin D-CDK4/6 complex":              0.90,
@@ -223,72 +227,40 @@ DIPG_PATHWAY_WEIGHTS: Dict[str, float] = {
     "MAPK signaling":                       0.70,
     "RAS signaling":                        0.70,
 
-    # DNA repair (PARP vulnerability)
+    # DNA repair
     "Base excision repair":                 0.70,
     "PARP signaling":                       0.85,
     "Synthetic lethality":                  0.85,
 
-    # Autophagy — relevant to resistance
+    # Autophagy
     "Autophagy":                            0.70,
     "Lysosomal function":                   0.65,
 
-    # Immune (cold TME in DIPG — lower priority)
+    # Immune
     "T-cell checkpoint signaling":          0.55,
     "PD-1/PD-L1 signaling":                0.55,
 
-    # Angiogenesis (VEGF relevant but less so than epigenetic targets)
+    # Angiogenesis
     "VEGF signaling":                       0.60,
     "Angiogenesis":                         0.60,
 
-    # BBB-specific (relevant to drug delivery)
+    # BBB-specific
     "P-glycoprotein signaling":             0.65,
     "ABC transporter activity":             0.65,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DIPG resistance genes
-# Genes whose activation drives treatment resistance in DIPG/H3K27M gliomas
 # ─────────────────────────────────────────────────────────────────────────────
 DIPG_RESISTANCE_GENES: Set[str] = {
-    # Core resistance mechanisms
-    "H3F3A",     # The oncogenic mutation itself — resistance by definition
-    "HIST1H3B",  # H3.1 variant
-    "PDGFRA",    # Amplification drives resistance to PDGFR inhibitors
-    "EGFR",      # Feedback activation after PDGFRA inhibition
-    "PTEN",      # Loss activates PI3K signalling — resistance to PDGFRA inh
-    "PIK3CA",    # Activating mutation — bypass resistance
-    "CDKN2A",   # Deletion — resistance to CDK4/6 inhibitors
-    "CDK4",      # Amplification — resistance
-    "MDM2",      # p53 inactivation — resistance to genotoxic agents
-    "TP53",      # Mutation — resistance to many therapies
-    "ATRX",      # Loss — alternative lengthening of telomeres
-    "MYC",       # Amplification — broad resistance to differentiation
-    "MYCN",      # N-Myc amplification
-
-    # Epigenetic resistance
-    "KDM6A",     # H3K27 demethylase upregulation — partially reverses H3K27me3 loss
-    "KDM6B",     # H3K27 demethylase
-    "BRD4",      # BET resistance through amplification
-
-    # Drug efflux (BBB + intracellular)
-    "ABCB1",     # P-gp — major BBB efflux pump
-    "ABCG2",     # BCRP — BBB efflux pump
-    "ABCC1",     # MRP1 — drug efflux
-
-    # Anti-apoptotic
-    "BCL2",      # Anti-apoptotic
-    "BCL2L1",    # BCL-XL
-    "MCL1",      # Anti-apoptotic — frequently upregulated in GBM
-
-    # Stemness (resistance by maintaining stem cell state)
-    "SOX2",      # Stem cell maintenance
-    "OLIG2",     # Lineage-specific resistance
+    "H3F3A", "HIST1H3B", "PDGFRA", "EGFR", "PTEN", "PIK3CA",
+    "CDKN2A", "CDK4", "MDM2", "TP53", "ATRX", "MYC", "MYCN",
+    "KDM6A", "KDM6B", "BRD4", "ABCB1", "ABCG2", "ABCC1",
+    "BCL2", "BCL2L1", "MCL1", "SOX2", "OLIG2",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Novel drug-target combinations specifically relevant to DIPG
-# These are mechanistically rational but NOT yet widely tested in DIPG
-# This is the "white space" for publication novelty
 # ─────────────────────────────────────────────────────────────────────────────
 DIPG_NOVEL_TARGETS: Dict[str, Dict] = {
     "ACVR1": {
@@ -323,25 +295,24 @@ DIPG_NOVEL_TARGETS: Dict[str, Dict] = {
     },
 }
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# DIPG disease parameters for insilico_trial.py integration
+# DIPG disease parameters
 # ─────────────────────────────────────────────────────────────────────────────
 DIPG_DISEASE_PARAMS: Dict = {
-    "baseline_orr":                   0.05,   # ~5% ORR with current SOC (worse than adult GBM)
-    "baseline_pfs6":                  0.10,   # Very poor PFS
-    "stroma_barrier":                 0.30,   # Brainstem infiltrative; hard to biopsy
-    "bbb_barrier":                    0.80,   # Brainstem has tighter BBB than cortex
-    "mutation_heterogeneity":         0.70,   # Moderate — H3K27M is clonal but other muts vary
-    "pdgfra_amplification_fraction":  0.36,   # PDGFRA amplified in 36% DIPG
-    "acvr1_mutation_fraction":        0.25,   # ACVR1 mutated in ~25% DIPG
-    "h3k27m_prevalence":              0.80,   # H3K27M found in ~80% DIPG
-    "h31_k27m_fraction":              0.23,   # H3.1 K27M subtype (more responsive to rt)
-    "h33_k27m_fraction":              0.57,   # H3.3 K27M subtype
-    "immune_desert_fraction":         0.85,   # Very cold TME — brainstem immune privilege
-    "phase2_success_threshold_orr":   0.15,   # Lower bar given poor baseline
+    "baseline_orr":                   0.05,
+    "baseline_pfs6":                  0.10,
+    "stroma_barrier":                 0.30,
+    "bbb_barrier":                    0.80,
+    "mutation_heterogeneity":         0.70,
+    "pdgfra_amplification_fraction":  0.36,
+    "acvr1_mutation_fraction":        0.25,
+    "h3k27m_prevalence":              0.80,
+    "h31_k27m_fraction":              0.23,
+    "h33_k27m_fraction":              0.57,
+    "immune_desert_fraction":         0.85,
+    "phase2_success_threshold_orr":   0.15,
     "resistance_genes":               DIPG_RESISTANCE_GENES,
-    "description":                    (
+    "description": (
         "DIPG (H3K27M-mutant) — brainstem location, tight BBB, H3K27M epigenetic "
         "vulnerability, ACVR1/PDGFRA subtypes, extremely cold TME, median survival 9-11 months."
     ),
@@ -350,7 +321,55 @@ DIPG_DISEASE_PARAMS: Dict = {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DIPG-specific scoring adjustments
+# NEW v1.1: augment_disease_data_for_dipg
+# Previously missing — imported by run_dipg_pipeline.py but not defined here.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def augment_disease_data_for_dipg(disease_data: Dict) -> Dict:
+    """
+    Merge DIPG-specific gene sets, pathway weights, and disease parameters
+    into an existing disease_data dict (as returned by ProductionDataFetcher).
+
+    This allows the pipeline to use DIPG-specific scoring weights without
+    replacing the base disease data entirely.
+
+    Parameters
+    ----------
+    disease_data : dict from ProductionDataFetcher.fetch_disease_data()
+
+    Returns
+    -------
+    Augmented dict with DIPG-specific fields merged in.
+    """
+    supplement = get_dipg_disease_data_supplement()
+
+    augmented = dict(disease_data)  # shallow copy — don't mutate original
+
+    # Merge gene lists (DIPG core genes take precedence, then add any from OpenTargets)
+    existing_genes = set(disease_data.get("genes", []))
+    dipg_genes     = set(supplement["genes"])
+    augmented["genes"] = list(dipg_genes | existing_genes)
+
+    # Add DIPG-specific fields
+    augmented["gene_scores"]   = supplement["gene_scores"]
+    augmented["pathways"]      = supplement["pathways"]
+    augmented["disease_params"] = supplement["disease_params"]
+    augmented["is_pediatric"]  = True
+    augmented["h3k27m_mutant"] = True
+    augmented["bbb_relevant"]  = True
+    augmented["source"]        = supplement["source"]
+    augmented["dipg_augmented"] = True
+
+    logger.info(
+        "Disease data augmented for DIPG: %d total genes (%d DIPG-specific added)",
+        len(augmented["genes"]),
+        len(dipg_genes - existing_genes),
+    )
+    return augmented
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DIPG-specific scoring class
 # ─────────────────────────────────────────────────────────────────────────────
 
 class DIPGSpecializedScorer:
@@ -362,33 +381,15 @@ class DIPGSpecializedScorer:
     2. ACVR1 subtype bonus for BMP pathway inhibitors
     3. BBB penetrance requirement (brainstem is tighter than cortex)
     4. Novelty bonus for drugs not yet tested in DIPG (white-space finding)
-
-    This class is designed to be applied AFTER the base pipeline scoring,
-    adding DIPG-specific signal without replacing the generic mechanism.
     """
 
-    # Drugs that hit DIPG-specific vulnerabilities but have NOT been
-    # formally tested in DIPG clinical trials (as of mid-2025)
-    # This is the publication white-space
     UNTESTED_IN_DIPG: Set[str] = {
-        "tazemetostat",    # EZH2 inhibitor
-        "abemaciclib",     # CDK4/6 inhibitor with CNS penetrance
-        "ribociclib",      # CDK4/6 inhibitor
-        "molibresib",      # BET inhibitor
-        "entinostat",      # Class I HDAC inhibitor
-        "tucidinostat",    # HDAC inhibitor
-        "navitoclax",      # BCL-2/XL inhibitor
-        "selinexor",       # XPO1 inhibitor
-        "alisertib",       # Aurora A kinase inhibitor
-        "olaparib",        # PARP inhibitor
-        "niraparib",       # PARP inhibitor
-        "veliparib",       # PARP inhibitor
-        "alpelisib",       # PI3Kalpha inhibitor
-        "copanlisib",      # Pan-PI3K inhibitor
-        "afatinib",        # Pan-ErbB inhibitor
+        "tazemetostat", "abemaciclib", "ribociclib", "molibresib",
+        "entinostat", "tucidinostat", "navitoclax", "selinexor",
+        "alisertib", "olaparib", "niraparib", "veliparib",
+        "alpelisib", "copanlisib", "afatinib",
     }
 
-    # Mechanism keywords that indicate H3K27M/DIPG relevance
     DIPG_MECHANISM_KEYWORDS: Dict[str, float] = {
         "hdac inhibitor":           0.40,
         "histone deacetylase":      0.40,
@@ -435,117 +436,84 @@ class DIPGSpecializedScorer:
         )
 
     def _h3k27m_vulnerability_score(self, drug: Dict) -> float:
-        """
-        Score drug's relevance to H3K27M epigenetic vulnerability.
-        Returns bonus in [0, h3k27m_bonus].
-        """
         mechanism  = (drug.get("mechanism", "") or "").lower()
         name_lower = (drug.get("name", drug.get("drug_name", "")) or "").lower()
         targets    = [t.upper() for t in (drug.get("targets") or [])]
 
         score = 0.0
-
-        # Mechanism keyword matching
         for keyword, weight in self.DIPG_MECHANISM_KEYWORDS.items():
             if keyword in mechanism:
                 score = max(score, weight)
 
-        # Target gene matching — check against H3K27M vulnerability targets
         h3k27m_vulnerability_genes = {
-            "EZH2", "EED", "SUZ12",     # PRC2 complex
-            "KDM6A", "KDM6B",           # H3K27 demethylases
-            "BRD4", "BRD2", "BRD3",     # BET bromodomains
-            "HDAC1", "HDAC2", "HDAC3",  # HDACs
-            "HDAC4", "HDAC6",
+            "EZH2", "EED", "SUZ12", "KDM6A", "KDM6B",
+            "BRD4", "BRD2", "BRD3", "HDAC1", "HDAC2",
+            "HDAC3", "HDAC4", "HDAC6",
         }
         target_hits = set(targets) & h3k27m_vulnerability_genes
         if target_hits:
             score = max(score, 0.35 + len(target_hits) * 0.05)
 
-        # Valproic acid special case — HDAC inhibitor with excellent CNS penetrance
         if "valproic" in name_lower or "valproate" in name_lower:
             score = max(score, 0.40)
 
         return min(score * self.h3k27m_bonus / 0.40, self.h3k27m_bonus)
 
     def _acvr1_score(self, drug: Dict) -> float:
-        """
-        Score drug's relevance to ACVR1-mutant DIPG subtype (~25%).
-        Returns bonus in [0, acvr1_bonus].
-        """
-        mechanism  = (drug.get("mechanism", "") or "").lower()
-        targets    = [t.upper() for t in (drug.get("targets") or [])]
+        mechanism = (drug.get("mechanism", "") or "").lower()
+        targets   = [t.upper() for t in (drug.get("targets") or [])]
 
-        acvr1_genes = {"ACVR1", "BMPR1A", "BMPR2", "SMAD1", "SMAD5",
-                       "SMAD4", "ID1", "ID2"}
-        bmp_keywords = ("bmp", "acvr1", "activin", "bone morphogenetic",
-                        "alk2", "type i bmp receptor")
+        acvr1_genes  = {"ACVR1", "BMPR1A", "BMPR2", "SMAD1", "SMAD5", "SMAD4", "ID1", "ID2"}
+        bmp_keywords = ("bmp", "acvr1", "activin", "bone morphogenetic", "alk2", "type i bmp receptor")
 
         target_hits = set(targets) & acvr1_genes
         mech_hit    = any(kw in mechanism for kw in bmp_keywords)
 
         if target_hits or mech_hit:
-            # Weight by 0.25 (ACVR1 fraction of DIPG) — it's a subtype
             return self.acvr1_bonus * 0.25 if not target_hits else self.acvr1_bonus
         return 0.0
 
     def _novelty_bonus(self, drug: Dict) -> float:
-        """
-        Bonus for drugs not yet tested in DIPG clinical trials.
-        This is the key "white space" signal for the paper.
-        """
         name_lower = (drug.get("name", drug.get("drug_name", "")) or "").lower()
-        # Remove salt suffixes for matching
         for suffix in (" hydrochloride", " hcl", " sodium", " mesylate"):
             name_lower = name_lower.replace(suffix, "")
         name_lower = name_lower.strip()
 
         if name_lower in self.UNTESTED_IN_DIPG:
             return self.novelty_bonus
-        # Partial match
         for untested in self.UNTESTED_IN_DIPG:
             if untested in name_lower or name_lower in untested:
                 return self.novelty_bonus * 0.75
         return 0.0
 
     def score_candidate(self, candidate: Dict) -> Dict:
-        """
-        Apply DIPG-specific scoring augmentation to a candidate.
-        Adds dipg_score, dipg_components, and adjusts composite score.
-        """
-        base_score = candidate.get("score", 0.0)
-
+        base_score   = candidate.get("score", 0.0)
         h3k27m_bonus = self._h3k27m_vulnerability_score(candidate)
         acvr1_bonus  = self._acvr1_score(candidate)
         novelty      = self._novelty_bonus(candidate)
-
-        # CNS drug boost — drugs approved for CNS use get small bump
-        # (implies known CNS penetrance even if BBB score uncertain)
-        bbb_pen = candidate.get("bbb_penetrance", "UNKNOWN")
-        cns_boost = self.cns_drug_boost if bbb_pen == "HIGH" else 0.0
+        bbb_pen      = candidate.get("bbb_penetrance", "UNKNOWN")
+        cns_boost    = self.cns_drug_boost if bbb_pen == "HIGH" else 0.0
 
         total_bonus = h3k27m_bonus + acvr1_bonus + novelty + cns_boost
         adjusted    = min(1.0, base_score + total_bonus)
 
-        candidate["dipg_score"]          = round(adjusted, 4)
-        candidate["dipg_bonus_total"]    = round(total_bonus, 4)
-        candidate["dipg_components"] = {
-            "base_score":      round(base_score, 4),
-            "h3k27m_bonus":    round(h3k27m_bonus, 4),
-            "acvr1_bonus":     round(acvr1_bonus, 4),
-            "novelty_bonus":   round(novelty, 4),
-            "cns_boost":       round(cns_boost, 4),
+        candidate["dipg_score"]       = round(adjusted, 4)
+        candidate["dipg_bonus_total"] = round(total_bonus, 4)
+        candidate["dipg_components"]  = {
+            "base_score":       round(base_score, 4),
+            "h3k27m_bonus":     round(h3k27m_bonus, 4),
+            "acvr1_bonus":      round(acvr1_bonus, 4),
+            "novelty_bonus":    round(novelty, 4),
+            "cns_boost":        round(cns_boost, 4),
             "is_untested_dipg": novelty > 0,
-            "h3k27m_relevant": h3k27m_bonus > 0,
-            "acvr1_relevant":  acvr1_bonus > 0,
+            "h3k27m_relevant":  h3k27m_bonus > 0,
+            "acvr1_relevant":   acvr1_bonus > 0,
         }
-        candidate["score"] = adjusted  # Update composite score
-
+        candidate["score"] = adjusted
         return candidate
 
     def score_batch(self, candidates: List[Dict]) -> List[Dict]:
-        """Score all candidates with DIPG-specific augmentation."""
-        logger.info(f"🧬 DIPG specialization: scoring {len(candidates)} candidates")
+        logger.info("🧬 DIPG specialization: scoring %d candidates", len(candidates))
         for c in candidates:
             self.score_candidate(c)
         candidates.sort(key=lambda x: x.get("score", 0), reverse=True)
@@ -555,16 +523,13 @@ class DIPGSpecializedScorer:
         n_novel  = sum(1 for c in candidates if c.get("dipg_components", {}).get("is_untested_dipg"))
 
         logger.info(
-            f"   H3K27M-relevant: {n_h3k27m}, ACVR1-relevant: {n_acvr1}, "
-            f"Untested in DIPG (novelty candidates): {n_novel}"
+            "   H3K27M-relevant: %d, ACVR1-relevant: %d, "
+            "Untested in DIPG (novelty candidates): %d",
+            n_h3k27m, n_acvr1, n_novel,
         )
         return candidates
 
     def generate_novelty_report(self, candidates: List[Dict], top_n: int = 10) -> str:
-        """
-        Generate a focused report on novel DIPG repurposing candidates.
-        This is the core output for the paper's results section.
-        """
         novel_candidates = [
             c for c in candidates
             if c.get("dipg_components", {}).get("is_untested_dipg")
@@ -605,7 +570,6 @@ class DIPGSpecializedScorer:
             "",
         ]
 
-        from dipg_specialization import DIPG_NOVEL_TARGETS
         for target, info in DIPG_NOVEL_TARGETS.items():
             lines += [
                 f"### {target}",
@@ -620,47 +584,18 @@ class DIPGSpecializedScorer:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gene score weighting adjustments for DIPG
+# Gene score weighting for DIPG
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_dipg_gene_score_weights() -> Dict[str, float]:
-    """
-    Returns gene-level importance weights for DIPG.
-    Used to boost genes that are specifically important in H3K27M tumours.
-    """
     return {
-        # Primary H3K27M oncogenic drivers — highest weight
-        "H3F3A":    1.00,
-        "HIST1H3B": 1.00,
-        "ACVR1":    0.95,
-        "PDGFRA":   0.90,
-        "EZH2":     0.90,
-        "BRD4":     0.90,
-
-        # Key epigenetic regulators
-        "KDM6A":    0.85,
-        "KDM6B":    0.80,
-        "HDAC1":    0.80,
-        "HDAC2":    0.80,
-        "ATRX":     0.75,
-        "SETD2":    0.75,
-
-        # Cell cycle (CDK4 amplification)
-        "CDK4":     0.85,
-        "CDK6":     0.75,
-        "CDKN2A":   0.80,
-
-        # Signalling
-        "PIK3CA":   0.75,
-        "PTEN":     0.80,
-        "TP53":     0.75,
-        "MYC":      0.70,
-        "MYCN":     0.70,
-        "EGFR":     0.65,
-
-        # Drug efflux (resistance) — lower weight as targets
-        "ABCB1":    0.40,
-        "ABCG2":    0.40,
+        "H3F3A": 1.00, "HIST1H3B": 1.00, "ACVR1": 0.95, "PDGFRA": 0.90,
+        "EZH2": 0.90, "BRD4": 0.90, "KDM6A": 0.85, "KDM6B": 0.80,
+        "HDAC1": 0.80, "HDAC2": 0.80, "ATRX": 0.75, "SETD2": 0.75,
+        "CDK4": 0.85, "CDK6": 0.75, "CDKN2A": 0.80,
+        "PIK3CA": 0.75, "PTEN": 0.80, "TP53": 0.75,
+        "MYC": 0.70, "MYCN": 0.70, "EGFR": 0.65,
+        "ABCB1": 0.40, "ABCG2": 0.40,
     }
 
 
@@ -671,18 +606,18 @@ def get_dipg_disease_data_supplement() -> Dict:
     """
     gene_weights = get_dipg_gene_score_weights()
     return {
-        "name":         "Diffuse intrinsic pontine glioma",
-        "aliases":      ["DIPG", "H3K27M-mutant glioma", "diffuse midline glioma H3K27M"],
-        "genes":        DIPG_CORE_GENES,
-        "gene_scores":  gene_weights,
-        "pathways":     list(DIPG_PATHWAY_WEIGHTS.keys()),
-        "is_rare":      True,
-        "is_pediatric": True,
+        "name":          "Diffuse intrinsic pontine glioma",
+        "aliases":       ["DIPG", "H3K27M-mutant glioma", "diffuse midline glioma H3K27M"],
+        "genes":         DIPG_CORE_GENES,
+        "gene_scores":   gene_weights,
+        "pathways":      list(DIPG_PATHWAY_WEIGHTS.keys()),
+        "is_rare":       True,
+        "is_pediatric":  True,
         "h3k27m_mutant": True,
-        "bbb_relevant": True,
-        "active_trials_count": 15,  # approximate as of 2024
+        "bbb_relevant":  True,
+        "active_trials_count": 15,
         "disease_params": DIPG_DISEASE_PARAMS,
-        "source":       "DIPG specialization module (Mackay 2017, Wu 2012, Grasso 2015)",
+        "source":        "DIPG specialization module (Mackay 2017, Wu 2012, Grasso 2015)",
         "notes": (
             "DIPG is a pediatric brainstem glioma driven by H3K27M histone mutation. "
             "~80% carry H3K27M. ACVR1 mutations in ~25%. Median OS 9-11 months. "

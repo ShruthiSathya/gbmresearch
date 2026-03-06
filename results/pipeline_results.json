@@ -1,0 +1,128 @@
+{
+  "run_timestamp": "2026-03-05T17:23:40.121867",
+  "disease": "dipg",
+  "stats": {
+    "p_value": 0.0001157169526793886,
+    "p_value_label": "1.16e-04 \u2705 (significant)",
+    "n_drugs_screened": 3,
+    "n_dipg_samples": 0,
+    "dipg_specialised": true,
+    "novel_count": 0,
+    "combinations_found": 0,
+    "cmap_active": false,
+    "synergy_validated": false,
+    "data_streams_active": [
+      "DepMap CRISPR (Broad Institute)",
+      "Single-cell RNA-seq (GSE131928)",
+      "OpenTargets API",
+      "STRING-DB PPI",
+      "PedcBioPortal genomic validation (PNOC/PBTA, n=184)"
+    ],
+    "data_streams_pending": [
+      "CMAP LINCS L1000 transcriptomic reversal (~30GB download required)",
+      "Experimental Chou-Talalay synergy CI data (wet lab required)"
+    ]
+  },
+  "contingency_table": null,
+  "top_candidates": [
+    {
+      "name": "ABEMACICLIB",
+      "targets": [],
+      "score": 0.9117,
+      "tissue_expression_score": 0.0,
+      "depmap_score": 0.8,
+      "ppi_score": 0.0,
+      "escape_bypass_score": 0.0,
+      "poly_score": 0.0,
+      "bbb_penetrance": "HIGH",
+      "bbb_score": 1.0,
+      "clinical_failure": false,
+      "bbb_penalty_applied": false,
+      "h3k27m_relevant": false,
+      "is_untested_dipg": false,
+      "dipg_score_bonus": 0.0,
+      "depmap_note": "",
+      "sc_context": "",
+      "mechanism": "Computationally derived synergistic combination. Selected for mechanism diversity, network proximity, and stem-cell eradication."
+    },
+    {
+      "name": "MARIZOMIB",
+      "targets": [],
+      "score": 0.9117,
+      "tissue_expression_score": 0.0,
+      "depmap_score": 1.0,
+      "ppi_score": 0.0,
+      "escape_bypass_score": 0.0,
+      "poly_score": 0.0,
+      "bbb_penetrance": "HIGH",
+      "bbb_score": 1.0,
+      "clinical_failure": false,
+      "bbb_penalty_applied": false,
+      "h3k27m_relevant": false,
+      "is_untested_dipg": false,
+      "dipg_score_bonus": 0.0,
+      "depmap_note": "",
+      "sc_context": "",
+      "mechanism": "Computationally derived synergistic combination. Selected for mechanism diversity, network proximity, and stem-cell eradication."
+    },
+    {
+      "name": "HYDROXYUREA",
+      "targets": [],
+      "score": 0.9117,
+      "tissue_expression_score": 0.0,
+      "depmap_score": 1.0,
+      "ppi_score": 0.0,
+      "escape_bypass_score": 0.0,
+      "poly_score": 0.0,
+      "bbb_penetrance": "UNKNOWN",
+      "bbb_score": 0.2,
+      "clinical_failure": false,
+      "bbb_penalty_applied": false,
+      "h3k27m_relevant": false,
+      "is_untested_dipg": false,
+      "dipg_score_bonus": 0.0,
+      "depmap_note": "",
+      "sc_context": "",
+      "mechanism": "Computationally derived synergistic combination. Selected for mechanism diversity, network proximity, and stem-cell eradication."
+    }
+  ],
+  "top_combinations": [],
+  "confidence_breakdown": {
+    "drug_combo": "ABEMACICLIB + MARIZOMIB + HYDROXYUREA",
+    "confidence": 0.9117,
+    "priority": "HIGH",
+    "statistical_significance": "1.16e-04 \u2705",
+    "depmap_essentiality": 0.9333,
+    "bbb_penetrance": 0.8333,
+    "mechanistic_diversity": 1.0,
+    "rationale": ""
+  },
+  "hypotheses": [
+    {
+      "drug_or_combo": "ABEMACICLIB + MARIZOMIB + HYDROXYUREA",
+      "priority": "HIGH",
+      "confidence": 0.9117,
+      "confidence_breakdown": {
+        "depmap_essentiality": 0.9333,
+        "bbb_penetrance": 0.8333,
+        "mechanistic_diversity": 1.0,
+        "method": "Weighted combination of: (1) DepMap CRISPR Chronos essentiality scores (Broad Institute), (2) Blood-brain barrier penetrance (curated PK literature), (3) Target Jaccard diversity (independent pathway coverage). NOT derived from the pipeline's own composite score."
+      },
+      "confidence_explanation": "Confidence = 0.45\u00d7DepMap(0.93) + 0.35\u00d7BBB(0.83) + 0.20\u00d7Diversity(1.00) = 0.91. DepMap: Broad CRISPR Chronos scores: [0.8, 1.0, 1.0]. BBB: BBB penetrance: [('ABEMACICLIB', 'HIGH'), ('MARIZOMIB', 'HIGH'), ('HYDROXYUREA', 'UNKNOWN')]. Diversity: Target Jaccard overlap: 0.0 (lower = more diverse).",
+      "supporting_streams": [
+        "Multi-Omic Integration"
+      ],
+      "target_context": "Multi-node blockade targeting CDK6 / CDK4 / PSMA6 / PSMB3 / PSMA4",
+      "mechanism_narrative": "Computationally derived synergistic combination. Selected for mechanism diversity, network proximity, and stem-cell eradication.",
+      "statistical_significance": "1.16e-04 \u2705",
+      "statistical_note": "Fisher's exact test for H3K27M/CDKN2A-del co-occurrence.",
+      "bypass_status": "HIGH",
+      "patient_population": "14 specific samples (14.7% prevalence)"
+    }
+  ],
+  "reports": {
+    "novelty": "",
+    "polypharmacology": "",
+    "combinations": ""
+  }
+}

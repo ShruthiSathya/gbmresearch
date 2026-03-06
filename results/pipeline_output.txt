@@ -1,0 +1,47 @@
+=================================================================
+GBM/DIPG Drug Repurposing Pipeline — save_results.py
+  disease  : dipg
+  top_n    : 20
+  timestamp: 2026-03-05 17:10:51
+=================================================================
+✅ CMAP Query Engine Initialized (Real Data Mode)
+✅ PPI Network Module Initialized (Live STRING-DB Connection)
+✅ DepMap Essentiality Module Initialized (Real Data Mode)
+✅ Hypothesis Generator Initialized (Diversity Mode)
+BBB Filter initialized (MW limit: 800.0 Da)
+🔍 Initializing live query for: dipg
+💊 Fetching dynamic drug library from OpenTargets API...
+  EFO EFO_0000519: 2000 drugs fetched across 20 pages
+  EFO EFO_0001422: 293 drugs fetched across 3 pages
+  EFO EFO_0000618: 2000 drugs fetched across 20 pages
+✅ Downloaded 557 unique CNS/Oncology drugs.
+Detected transposed genomic format (gene columns: study_id, pbta_all...). Parsing as sample×gene matrix.
+Transposed format: found 95 H3K27M (K28M) samples out of 184 total
+CDKN2A: 50 samples with deletion (score ≤ -1), 6 with deep deletion (score = -2)
+RNA: 1 genes upregulated (z-score > 2.0) in H3K27M samples
+Co-occurrence: H3K27M=95, CDKN2A-del=50, overlap=14, total=184
+Contingency table → H3K27M+/CDKN2A-del: a=14, b=81, c=36, d=53
+📊 Fisher's exact test: p = 1.1572e-04 (H3K27M+CDKN2A-del co-occurrence; one-sided, n=184)
+⏳ Loading Single-Cell GBM Matrix... (This takes a moment)
+✅ Single-Cell loaded: Identified 2431 Stem-Like cells out of 16201.
+⏳ Loading massive DepMap CRISPR dataset into memory...
+OncotreeSubtype filter ('OncotreeSubtype'): matched 72 cell lines
+Loading CRISPRGeneEffect.csv (this is large — may take 30-60s)...
+DepMap cell line matching: 72 found in Model.csv, 52 present in CRISPRGeneEffect.csv
+✅ DepMap loaded: 52 cell lines, 18435 gene scores computed
+BBB filter: penalised 14 known GBM clinical trial failures
+
+── pipeline.run() returned keys: ['hypotheses', 'stats']
+── reconstructing candidates by parsing hypothesis text fields
+── total candidates for figures: 3
+
+✅ Results saved to : results/pipeline_results.json
+✅ Log saved to     : results/pipeline_output.txt
+
+Next step: python generate_figures.py
+
+── Top 5 candidates ────────────────────────────────
+  Drug                       Score  BBB       
+  ABEMACICLIB                0.912  HIGH      
+  MARIZOMIB                  0.912  HIGH      
+  HYDROXYUREA                0.912  UNKNOWN   
