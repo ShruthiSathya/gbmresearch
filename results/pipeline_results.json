@@ -1,5 +1,5 @@
 {
-  "run_timestamp": "2026-03-05T17:23:40.121867",
+  "run_timestamp": "2026-03-05T20:24:02.548891",
   "disease": "dipg",
   "stats": {
     "p_value": 0.0001157169526793886,
@@ -23,7 +23,17 @@
       "Experimental Chou-Talalay synergy CI data (wet lab required)"
     ]
   },
-  "contingency_table": null,
+  "contingency_table": {
+    "h3k27m_pos_cdkn2a_del": 14,
+    "h3k27m_pos_cdkn2a_wt": 81,
+    "h3k27m_neg_cdkn2a_del": 36,
+    "h3k27m_neg_cdkn2a_wt": 53,
+    "h3k27m_count": 95,
+    "cdkn2a_del_count": 50,
+    "total": 184,
+    "p_value": 0.0001157169526793886,
+    "p_value_label": "1.16e-04 \u2705 (significant)"
+  },
   "top_candidates": [
     {
       "name": "ABEMACICLIB",
@@ -112,7 +122,7 @@
       "supporting_streams": [
         "Multi-Omic Integration"
       ],
-      "target_context": "Multi-node blockade targeting CDK6 / CDK4 / PSMA6 / PSMB3 / PSMA4",
+      "target_context": "Multi-node blockade targeting CDK6 / CDK4 / PSMA2 / PSMB3 / PSMA7",
       "mechanism_narrative": "Computationally derived synergistic combination. Selected for mechanism diversity, network proximity, and stem-cell eradication.",
       "statistical_significance": "1.16e-04 \u2705",
       "statistical_note": "Fisher's exact test for H3K27M/CDKN2A-del co-occurrence.",

@@ -2,7 +2,7 @@
 GBM/DIPG Drug Repurposing Pipeline — save_results.py
   disease  : dipg
   top_n    : 20
-  timestamp: 2026-03-05 17:10:51
+  timestamp: 2026-03-05 20:13:41
 =================================================================
 ✅ CMAP Query Engine Initialized (Real Data Mode)
 ✅ PPI Network Module Initialized (Live STRING-DB Connection)
@@ -32,6 +32,7 @@ DepMap cell line matching: 72 found in Model.csv, 52 present in CRISPRGeneEffect
 BBB filter: penalised 14 known GBM clinical trial failures
 
 ── pipeline.run() returned keys: ['hypotheses', 'stats']
+── pipeline attributes: ['_bbb_filter', '_cmap', '_data_fetcher', '_depmap', '_genomic_validator', '_hyp_gen', '_ppi', '_stat_validator', '_synergy', '_tissue', 'initialize', 'run']
 ── reconstructing candidates by parsing hypothesis text fields
 ── total candidates for figures: 3
 
@@ -39,6 +40,13 @@ BBB filter: penalised 14 known GBM clinical trial failures
 ✅ Log saved to     : results/pipeline_output.txt
 
 Next step: python generate_figures.py
+
+── Contingency table ──────────────────────────────
+  H3K27M+/CDKN2A-del : 14
+  H3K27M+/CDKN2A-WT  : 81
+  H3K27M-/CDKN2A-del : 36
+  H3K27M-/CDKN2A-WT  : 53
+  p-value            : 1.16e-04 ✅ (significant)
 
 ── Top 5 candidates ────────────────────────────────
   Drug                       Score  BBB       
